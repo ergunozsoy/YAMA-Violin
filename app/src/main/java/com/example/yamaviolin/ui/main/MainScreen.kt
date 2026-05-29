@@ -74,7 +74,7 @@ fun MainScreen(
       }
     },
     floatingActionButton = {
-      if (selectedTab != 2 && selectedTab != 3) {
+      if (selectedTab == 1) {
         FloatingActionButton(
           onClick = { onNavigate(NewEntry) },
           containerColor = MaterialTheme.colorScheme.primary,
