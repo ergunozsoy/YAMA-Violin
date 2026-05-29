@@ -84,16 +84,13 @@ class DefaultDataRepository(private val context: android.content.Context) : Data
         val list = jsonParser.decodeFromString<List<PracticeSession>>(jsonStr)
         _sessions.value = list
       } else {
-        // Load initial mock data
-        val initialList = createMockSessions()
-        _sessions.value = initialList
-        saveSessions(initialList)
+        // Start with empty list on fresh install
+        _sessions.value = emptyList()
       }
     } catch (e: Exception) {
       e.printStackTrace()
-      // Fallback to mock data if load fails
-      val initialList = createMockSessions()
-      _sessions.value = initialList
+      // Fallback to empty list if load fails
+      _sessions.value = emptyList()
     }
   }
 

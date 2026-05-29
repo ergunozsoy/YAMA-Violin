@@ -8,7 +8,7 @@ android {
     namespace = "com.example.yamaviolin"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.example.yamaviolin"
+        applicationId = "io.github.ergunozsoy.yamaviolin"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
