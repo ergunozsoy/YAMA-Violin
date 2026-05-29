@@ -7,6 +7,11 @@ import kotlinx.coroutines.flow.update
 import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
 
 @Serializable
 data class TimestampedFeedback(
@@ -59,6 +64,7 @@ interface DataRepository {
 }
 
 class DefaultDataRepository(private val context: android.content.Context) : DataRepository {
+  private val repositoryScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
   private val file = java.io.File(context.filesDir, "yama_sessions.json")
   private val jsonParser = kotlinx.serialization.json.Json {
     ignoreUnknownKeys = true
@@ -205,18 +211,37 @@ class DefaultDataRepository(private val context: android.content.Context) : Data
   override val sessions: Flow<List<PracticeSession>> = _sessions.asStateFlow()
 
   override fun addSession(session: PracticeSession) {
-    // Generate automatic pre-analysis hints if there is an audio file and no feedback items yet
-    val updatedSession = if (!session.audioUri.isNullOrBlank() && session.feedbackItems.isEmpty()) {
-      val generatedHints = AudioPreAnalyzer.analyze(session.id, session.audioUri, session.audioDurationSeconds, session.piece)
-      session.copy(feedbackItems = generatedHints)
-    } else {
-      session
-    }
-
+    // Add the session immediately to the flow and save it
     _sessions.update { current ->
-      val updatedList = listOf(updatedSession) + current
+      val updatedList = listOf(session) + current
       saveSessions(updatedList)
       updatedList
+    }
+
+    // Run the analysis asynchronously in the background if audio is present and there are no feedback items yet
+    if (!session.audioUri.isNullOrBlank() && session.feedbackItems.isEmpty()) {
+      repositoryScope.launch(Dispatchers.Default) {
+        val generatedHints = AudioPreAnalyzer.analyze(
+          sessionId = session.id,
+          audioUri = session.audioUri,
+          durationSeconds = session.audioDurationSeconds,
+          pieceName = session.piece
+        )
+        if (generatedHints.isNotEmpty()) {
+          _sessions.update { current ->
+            val updatedList = current.map { s ->
+              if (s.id == session.id) {
+                // Combine any feedback items that might have been added manually in the meantime
+                s.copy(feedbackItems = s.feedbackItems + generatedHints)
+              } else {
+                s
+              }
+            }
+            saveSessions(updatedList)
+            updatedList
+          }
+        }
+      }
     }
   }
 
