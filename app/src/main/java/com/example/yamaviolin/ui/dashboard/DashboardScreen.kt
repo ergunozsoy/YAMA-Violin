@@ -12,16 +12,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -63,13 +63,21 @@ fun DashboardScreen(
     }
   }
 
-  // Calculate statistics
-  val totalMinutesThisWeek = sessions.sumOf { it.durationMinutes ?: 0 }
+  // Calculate real active practice minutes per session
+  fun getSessionMinutes(session: PracticeSession): Int {
+    return session.durationMinutes ?: if (session.audioDurationSeconds > 0) {
+      (session.audioDurationSeconds / 60).coerceAtLeast(1)
+    } else {
+      0
+    }
+  }
+
   val todayFormatted = SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN).format(Date())
-  val todayMinutes = sessions.filter { it.date == todayFormatted }.sumOf { it.durationMinutes ?: 0 }
+  val todayMinutes = sessions.filter { it.date == todayFormatted }.sumOf { getSessionMinutes(it) }
+  val totalMinutes = sessions.sumOf { getSessionMinutes(it) }
+  val lastSession = sessions.firstOrNull() // Sessions are ordered newest first
 
   val mainColor = MaterialTheme.colorScheme.primary
-  val secondaryColor = MaterialTheme.colorScheme.secondary
   val backgroundGradient = Brush.verticalGradient(
     colors = listOf(
       mainColor.copy(alpha = 0.12f),
@@ -99,174 +107,208 @@ fun DashboardScreen(
       )
     }
 
-    // Slogan Banner Card
+    // 1. Compact Practice Stats Section (Real Data, Reduced Dominance)
     Card(
       modifier = Modifier.fillMaxWidth(),
       shape = RoundedCornerShape(16.dp),
       colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.primaryContainer
-      )
+        containerColor = MaterialTheme.colorScheme.surface
+      ),
+      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
       Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-      ) {
-        Text(
-          text = "Spielen. Hören. Reflektieren. Wachsen.",
-          style = MaterialTheme.typography.titleLarge.copy(
-            fontWeight = FontWeight.Bold,
-            fontStyle = FontStyle.Italic
-          ),
-          color = MaterialTheme.colorScheme.onPrimaryContainer,
-          textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-          text = "Dein digitales Übungstagebuch zur täglichen musikalischen Entwicklung.",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-          textAlign = TextAlign.Center
-        )
-      }
-    }
-
-    // Stats Grid
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      StatCard(
-        title = "Heute geübt",
-        value = "$todayMinutes Min.",
-        subtitle = "Tagesziel: 45 Min.",
-        modifier = Modifier.weight(1f)
-      )
-      StatCard(
-        title = "Gesamt geübt",
-        value = "${totalMinutesThisWeek} Min.",
-        subtitle = "Wochenziel: 240 Min.",
-        modifier = Modifier.weight(1f)
-      )
-    }
-
-    // Daily Tip Card
-    Card(
-      modifier = Modifier.fillMaxWidth(),
-      shape = RoundedCornerShape(12.dp),
-      colors = CardDefaults.cardColors(
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f)
-      )
-    ) {
-      Row(
         modifier = Modifier.padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
       ) {
-        Icon(
-          imageVector = Icons.Default.Info,
-          contentDescription = "Tipp des Tages",
-          tint = MaterialTheme.colorScheme.tertiary
-        )
-        Column {
-          Text(
-            text = "Tipp des Tages",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.tertiary
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          // Heute
+          Column(modifier = Modifier.weight(1f)) {
+            Text(
+              text = "Heute geübt",
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "$todayMinutes Min.",
+              style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.primary
+            )
+          }
+
+          // Vertical Divider
+          Box(
+            modifier = Modifier
+              .height(36.dp)
+              .width(1.dp)
+              .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
           )
-          Spacer(modifier = Modifier.height(2.dp))
-          Text(
-            text = "Achte heute besonders auf eine gerade Bogenführung parallel zum Steg. Verwende einen Spiegel zur Selbstkontrolle.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
+
+          // Gesamt
+          Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.End
+          ) {
+            Text(
+              text = "Gesamt geübt",
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+              textAlign = TextAlign.End
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "$totalMinutes Min.",
+              style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.secondary,
+              textAlign = TextAlign.End
+            )
+          }
+        }
+
+        // Letzte Einheit (Optional - only if there are sessions)
+        if (lastSession != null) {
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(1.dp)
+              .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
           )
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Icon(
+              imageVector = Icons.Default.Info,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+              modifier = Modifier.size(16.dp)
+            )
+            val durationLabel = if (lastSession.durationMinutes != null && lastSession.durationMinutes > 0) {
+              "${lastSession.durationMinutes} Min."
+            } else if (lastSession.audioDurationSeconds > 0) {
+              formatTime(lastSession.audioDurationSeconds)
+            } else {
+              "Dauer n.a."
+            }
+            Text(
+              text = "Letzte Einheit: ${lastSession.piece} (${lastSession.date} • $durationLabel)",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+              maxLines = 1
+            )
+          }
         }
       }
     }
 
-    // Import Card
-    Card(
-      modifier = Modifier
-        .fillMaxWidth()
-        .clickable { importLauncher.launch("audio/*") },
-      shape = RoundedCornerShape(12.dp),
-      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    // 2. Action Buttons (Neue Aufnahme, Frühere Aufnahme importieren)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      Row(
-        modifier = Modifier.padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+      // Neue Aufnahme Card
+      Card(
+        modifier = Modifier
+          .weight(1f)
+          .clickable { onNavigate(NewEntry) },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
       ) {
-        Icon(
-          imageVector = Icons.Default.PlayArrow,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.primary
-        )
-        Column {
-          Text(
-            text = "Frühere Aufnahme importieren",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary
+        Column(
+          modifier = Modifier.padding(16.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.Center
+        ) {
+          Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size(24.dp)
           )
-          Spacer(modifier = Modifier.height(2.dp))
+          Spacer(modifier = Modifier.height(8.dp))
           Text(
-            text = "Wähle eine bestehende Audiodatei aus deinem Gerätespeicher aus.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            text = "Neue Aufnahme",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            textAlign = TextAlign.Center
+          )
+        }
+      }
+
+      // Aufnahme importieren Card
+      Card(
+        modifier = Modifier
+          .weight(1f)
+          .clickable { importLauncher.launch("audio/*") },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+      ) {
+        Column(
+          modifier = Modifier.padding(16.dp),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.Center
+        ) {
+          Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          Text(
+            text = "Aufnahme importieren",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center
           )
         }
       }
     }
 
     // Recent Sessions Title
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Text(
-        text = "Letzte Übungseinheiten",
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onBackground
-      )
-    }
+    Text(
+      text = "Letzte Übungseinheiten",
+      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onBackground
+    )
 
-    // Recent Sessions List
+    // Recent Sessions List / Calm Empty State
     if (sessions.isEmpty()) {
-      Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
       ) {
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(24.dp),
-          horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-          Text(
-            text = "Noch keine Einträge vorhanden.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-          )
-          Spacer(modifier = Modifier.height(12.dp))
-          Button(
-            onClick = { onNavigate(NewEntry) },
-            colors = ButtonDefaults.buttonColors(containerColor = mainColor)
-          ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Erste Einheit eintragen")
-          }
-        }
+        Text(
+          text = "Noch keine Übungseinheiten vorhanden.",
+          style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+          color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+          textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = "Starte eine neue Aufnahme oder importiere eine frühere Aufnahme.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(horizontal = 24.dp)
+        )
       }
     } else {
       Column(
         verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        sessions.take(2).forEach { session ->
+        sessions.take(3).forEach { session ->
           RecentSessionItem(
             session = session,
             onClick = { onNavigate(EntryDetail(session.id)) }
@@ -277,43 +319,6 @@ fun DashboardScreen(
   }
 }
 
-@Composable
-fun StatCard(
-  title: String,
-  value: String,
-  subtitle: String,
-  modifier: Modifier = Modifier
-) {
-  Card(
-    modifier = modifier,
-    shape = RoundedCornerShape(12.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-  ) {
-    Column(
-      modifier = Modifier.padding(16.dp),
-      horizontalAlignment = Alignment.Start
-    ) {
-      Text(
-        text = title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-      )
-      Spacer(modifier = Modifier.height(8.dp))
-      Text(
-        text = value,
-        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.primary
-      )
-      Spacer(modifier = Modifier.height(4.dp))
-      Text(
-        text = subtitle,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-      )
-    }
-  }
-}
 
 private fun formatTime(seconds: Int): String {
   val mins = seconds / 60
