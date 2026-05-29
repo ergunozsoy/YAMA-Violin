@@ -10,7 +10,7 @@ val ViolinWoodBrownContainer = Color(0xFFFDEEE6)
 val OnViolinWoodBrownContainer = Color(0xFF4A250F)
 
 // Secondary: Warm Amber
-val WarmAmber = Color(0xFFB7793E)
+val WarmAmber = Color(0xFFC8862E)
 val OnWarmAmber = Color(0xFFFFFFFF)
 val WarmAmberContainer = Color(0xFFFDF0E2)
 val OnWarmAmberContainer = Color(0xFF5E350E)
@@ -31,4 +31,10 @@ val GraphiteBrown = Color(0xFF2D241F)
 val SoftGraphite = Color(0xFF52443C)
 val WarmBorder = Color(0xFFD7C3B7)
 val WarmGray = Color(0xFFECE5DD)
+
+// Warm Classic Violin/Wood Theme Colors
+val DeepRosewood = Color(0xFF5A2A27)
+val Parchment = Color(0xFFF4E9D8)
+val SoftMaroon = Color(0xFF7B3F3A)
+val InkBrown = Color(0xFF3A2A22)
 
