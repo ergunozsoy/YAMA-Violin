@@ -64,9 +64,9 @@ fun DashboardScreen(
   }
 
   // Calculate statistics
-  val totalMinutesThisWeek = sessions.sumOf { it.durationMinutes }
+  val totalMinutesThisWeek = sessions.sumOf { it.durationMinutes ?: 0 }
   val todayFormatted = SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN).format(Date())
-  val todayMinutes = sessions.filter { it.date == todayFormatted }.sumOf { it.durationMinutes }
+  val todayMinutes = sessions.filter { it.date == todayFormatted }.sumOf { it.durationMinutes ?: 0 }
 
   val mainColor = MaterialTheme.colorScheme.primary
   val secondaryColor = MaterialTheme.colorScheme.secondary
@@ -315,6 +315,12 @@ fun StatCard(
   }
 }
 
+private fun formatTime(seconds: Int): String {
+  val mins = seconds / 60
+  val secs = seconds % 60
+  return String.format(Locale.GERMAN, "%02d:%02d", mins, secs)
+}
+
 @Composable
 fun RecentSessionItem(
   session: PracticeSession,
@@ -366,8 +372,20 @@ fun RecentSessionItem(
           maxLines = 1
         )
         Spacer(modifier = Modifier.height(4.dp))
+        val durationLabel = if (session.durationMinutes != null && session.durationMinutes > 0) {
+          "${session.durationMinutes} Min. geübt"
+        } else if (session.audioDurationSeconds > 0) {
+          "Aufnahme: ${formatTime(session.audioDurationSeconds)}"
+        } else {
+          "Übungsdauer nicht angegeben"
+        }
+        val subtitleText = if (session.focusAreas.isNotEmpty()) {
+          "$durationLabel • ${session.focusAreas.joinToString(", ")}"
+        } else {
+          durationLabel
+        }
         Text(
-          text = "${session.durationMinutes} Min. geübt • ${session.focusAreas.joinToString(", ")}",
+          text = subtitleText,
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )

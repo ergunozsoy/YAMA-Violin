@@ -227,26 +227,81 @@ fun EntryDetailScreen(
           }
         }
 
-        // Date, Duration, Mood Row
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-          InfoItem(
-            label = "Datum",
-            value = currentSession.date,
-            modifier = Modifier.weight(1f)
-          )
-          InfoItem(
-            label = "Dauer",
-            value = "${currentSession.durationMinutes} Min.",
-            modifier = Modifier.weight(1f)
-          )
-          InfoItem(
-            label = "Stimmung",
-            value = currentSession.mood,
-            modifier = Modifier.weight(1f)
-          )
+        // Date, Duration, Mood Layout
+        val hasPractice = currentSession.durationMinutes != null && currentSession.durationMinutes > 0
+        val hasAudio = currentSession.audioDurationSeconds > 0
+
+        if (hasPractice && hasAudio) {
+          Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+              InfoItem(
+                label = "Datum",
+                value = currentSession.date,
+                modifier = Modifier.weight(1f)
+              )
+              InfoItem(
+                label = "Stimmung",
+                value = currentSession.mood,
+                modifier = Modifier.weight(1f)
+              )
+            }
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+              InfoItem(
+                label = "Übungsdauer",
+                value = "${currentSession.durationMinutes} Min.",
+                modifier = Modifier.weight(1f)
+              )
+              InfoItem(
+                label = "Aufnahmedauer",
+                value = formatTime(currentSession.audioDurationSeconds),
+                modifier = Modifier.weight(1f)
+              )
+            }
+          }
+        } else {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            InfoItem(
+              label = "Datum",
+              value = currentSession.date,
+              modifier = Modifier.weight(1f)
+            )
+            if (hasPractice) {
+              InfoItem(
+                label = "Übungsdauer",
+                value = "${currentSession.durationMinutes} Min.",
+                modifier = Modifier.weight(1f)
+              )
+            } else if (hasAudio) {
+              InfoItem(
+                label = "Aufnahmedauer",
+                value = formatTime(currentSession.audioDurationSeconds),
+                modifier = Modifier.weight(1f)
+              )
+            } else {
+              InfoItem(
+                label = "Übungsdauer",
+                value = "nicht angegeben",
+                modifier = Modifier.weight(1f)
+              )
+            }
+            InfoItem(
+              label = "Stimmung",
+              value = currentSession.mood,
+              modifier = Modifier.weight(1f)
+            )
+          }
         }
 
         // Focus Areas
@@ -512,15 +567,15 @@ fun EntryDetailScreen(
           }
         }
 
-        // Feature 1: Zeitmarkierte Analyse
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Feature 1: Analyse mit Zeitmarken
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
           ) {
             Text(
-              text = "Zeitmarkierte Analyse",
+              text = "Analyse mit Zeitmarken",
               style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
               color = MaterialTheme.colorScheme.onBackground
             )
@@ -537,7 +592,42 @@ fun EntryDetailScreen(
             }
           }
 
-          if (currentSession.feedbackItems.isEmpty()) {
+          // Short explanation text and disclaimer
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(
+              containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+            )
+          ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+              Text(
+                text = "YAMA Violin markiert auffällige Stellen in der Aufnahme automatisch. Die Hinweise sind Vorschläge und sollten musikalisch überprüft werden.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+              )
+              Text(
+                text = "Diese Analyse ersetzt keine musikalische Beurteilung.",
+                style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic),
+                color = MaterialTheme.colorScheme.primary
+              )
+            }
+          }
+
+          // Filter feedbackItems
+          val feedbackItems = currentSession.feedbackItems
+          val manualOrAcceptedItems = feedbackItems.filter { !it.isAutomatic || it.isAccepted }
+          val automaticSuggestions = feedbackItems.filter { it.isAutomatic && !it.isAccepted && !it.isIgnored }
+
+          // Section 1: Manuelle Übungsnotizen & bestätigte Hinweise
+          Text(
+            text = "Übungsnotizen (Manuell / Übernommen)",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(top = 8.dp)
+          )
+
+          if (manualOrAcceptedItems.isEmpty()) {
             Card(
               modifier = Modifier.fillMaxWidth(),
               shape = RoundedCornerShape(12.dp),
@@ -547,19 +637,19 @@ fun EntryDetailScreen(
               Box(
                 modifier = Modifier
                   .fillMaxWidth()
-                  .padding(24.dp),
+                  .padding(16.dp),
                 contentAlignment = Alignment.Center
               ) {
                 Text(
-                  text = "Noch keine zeitmarkierten Analysen vorhanden.",
+                  text = "Noch keine gespeicherten Übungsnotizen vorhanden.",
                   style = MaterialTheme.typography.bodyMedium,
                   color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
               }
             }
           } else {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              currentSession.feedbackItems.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              manualOrAcceptedItems.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 FeedbackCard(
                   item = feedbackItem,
                   isBookmarked = bookmarkedItems.contains(feedbackItem.id),
@@ -578,6 +668,74 @@ fun EntryDetailScreen(
                     } else {
                       isPlaying = true
                     }
+                  },
+                  onBookmarkClick = {
+                    bookmarkedItems = if (bookmarkedItems.contains(feedbackItem.id)) {
+                      bookmarkedItems - feedbackItem.id
+                    } else {
+                      bookmarkedItems + feedbackItem.id
+                    }
+                  }
+                )
+              }
+            }
+          }
+
+          // Section 2: Automatische Analyse-Vorschläge
+          Text(
+            text = "Automatische Vorschläge",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 12.dp)
+          )
+
+          if (automaticSuggestions.isEmpty()) {
+            Card(
+              modifier = Modifier.fillMaxWidth(),
+              shape = RoundedCornerShape(12.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+              border = CardDefaults.outlinedCardBorder()
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = "Keine weiteren Analysevorschläge vorhanden.",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+              }
+            }
+          } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+              automaticSuggestions.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
+                AutomaticSuggestionCard(
+                  item = feedbackItem,
+                  isBookmarked = bookmarkedItems.contains(feedbackItem.id),
+                  onListenClick = {
+                    playProgressSeconds = feedbackItem.startTimeSeconds
+                    if (isRealAudio) {
+                      try {
+                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
+                        if (!isPlaying) {
+                          mediaPlayer?.start()
+                          isPlaying = true
+                        }
+                      } catch (e: Exception) {
+                        e.printStackTrace()
+                      }
+                    } else {
+                      isPlaying = true
+                    }
+                  },
+                  onAcceptClick = {
+                    RepositoryProvider.repository.acceptFeedback(currentSession.id, feedbackItem.id)
+                  },
+                  onIgnoreClick = {
+                    RepositoryProvider.repository.ignoreFeedback(currentSession.id, feedbackItem.id)
                   },
                   onBookmarkClick = {
                     bookmarkedItems = if (bookmarkedItems.contains(feedbackItem.id)) {
@@ -818,6 +976,20 @@ fun FeedbackCard(
           horizontalArrangement = Arrangement.spacedBy(6.dp),
           verticalAlignment = Alignment.CenterVertically
         ) {
+          // Source Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(if (item.isAutomatic) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = item.source,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = if (item.isAutomatic) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+
           // Category Badge
           Box(
             modifier = Modifier
@@ -918,6 +1090,199 @@ fun FeedbackCard(
             text = if (isBookmarked) "Markiert!" else "Als Übungsstelle markieren",
             style = MaterialTheme.typography.labelMedium
           )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+fun AutomaticSuggestionCard(
+  item: TimestampedFeedback,
+  isBookmarked: Boolean,
+  onListenClick: () -> Unit,
+  onAcceptClick: () -> Unit,
+  onIgnoreClick: () -> Unit,
+  onBookmarkClick: () -> Unit
+) {
+  val typeColor = when (item.feedbackType) {
+    "Stärke" -> Color(0xFF27AE60)
+    "Hinweis" -> MaterialTheme.colorScheme.secondary
+    "Problem" -> Color(0xFFC0392B)
+    "Übungsziel" -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.onSurface
+  }
+
+  Card(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(12.dp),
+    colors = CardDefaults.cardColors(
+      containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+    ),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+  ) {
+    Column(
+      modifier = Modifier.padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        // Time Stamp
+        Text(
+          text = "${formatTime(item.startTimeSeconds)} – ${formatTime(item.endTimeSeconds)}",
+          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+          color = MaterialTheme.colorScheme.primary
+        )
+
+        // Badges Row
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          // Source badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(MaterialTheme.colorScheme.tertiaryContainer)
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = "Automatisch erkannt",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+          }
+
+          // Category Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(MaterialTheme.colorScheme.primaryContainer)
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = item.category,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+          }
+        }
+      }
+
+      // Comment
+      Text(
+        text = item.comment,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface
+      )
+
+      // Suggestion
+      if (item.practiceSuggestion.isNotBlank()) {
+        Card(
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(8.dp),
+          colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+          )
+        ) {
+          Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+              text = "Übungsvorschlag:",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+              text = item.practiceSuggestion,
+              style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+        }
+      }
+
+      // Actions: Row 1 (Anhören & Übungsstelle)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Anhören
+        Button(
+          onClick = onListenClick,
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+
+        // Als Übungsstelle markieren
+        Button(
+          onClick = onBookmarkClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isBookmarked) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = if (isBookmarked) "Markiert!" else "Übungsstelle",
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+          )
+        }
+      }
+
+      // Actions: Row 2 (Übernehmen & Ignorieren)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Übernehmen
+        Button(
+          onClick = onAcceptClick,
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF27AE60)),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Übernehmen", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+
+        // Ignorieren
+        Button(
+          onClick = onIgnoreClick,
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Ignorieren", style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
       }
     }

@@ -424,7 +424,7 @@ fun ImportPreviewScreen(
               val newSession = PracticeSession(
                 date = importDate,
                 piece = formattedTitle,
-                durationMinutes = if (durationMs > 0) (durationMs / 60000).toInt().coerceAtLeast(1) else 5,
+                durationMinutes = null,
                 mood = "Ok",
                 focusAreas = selectedFocus.toList(),
                 notes = if (notes.isBlank()) "Importierte Aufnahme aus Datei: $fileName" else notes,
@@ -465,7 +465,7 @@ fun ImportPreviewScreen(
             val newSession = PracticeSession(
               date = importDate,
               piece = fallbackTitle,
-              durationMinutes = if (durationMs > 0) (durationMs / 60000).toInt().coerceAtLeast(1) else 5,
+              durationMinutes = null,
               mood = "Ok",
               focusAreas = emptyList(),
               notes = "Schnellimportiert am $importDate. Datei: $fileName",

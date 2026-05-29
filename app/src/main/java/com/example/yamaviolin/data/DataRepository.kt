@@ -5,7 +5,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.util.UUID
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
+@Serializable
 data class TimestampedFeedback(
   val id: String = UUID.randomUUID().toString(),
   val sessionId: String,
@@ -14,14 +17,21 @@ data class TimestampedFeedback(
   val category: String, // Intonation, Bogenführung, Lagenwechsel, Klangqualität, Vibrato, Rhythmus/Tempo, Musikalischer Ausdruck, Aufnahmequalität
   val feedbackType: String, // Stärke, Hinweis, Problem, Übungsziel
   val comment: String,
-  val practiceSuggestion: String
+  val practiceSuggestion: String,
+  val isAutomatic: Boolean = false,
+  val canBeIgnored: Boolean = true,
+  val canBeAccepted: Boolean = true,
+  val isIgnored: Boolean = false,
+  val isAccepted: Boolean = false,
+  val source: String = "Manuell hinzugefügt"
 )
 
+@Serializable
 data class PracticeSession(
   val id: String = UUID.randomUUID().toString(),
   val date: String, // e.g. "28.05.2026"
   val piece: String,
-  val durationMinutes: Int,
+  val durationMinutes: Int? = null,
   val mood: String, // "Hervorragend", "Gut", "Ok", "Schwer"
   val focusAreas: List<String>,
   val notes: String,
@@ -40,17 +50,58 @@ interface DataRepository {
   val sessions: Flow<List<PracticeSession>>
   fun addSession(session: PracticeSession)
   fun addFeedbackToSession(sessionId: String, feedback: TimestampedFeedback)
+  fun acceptFeedback(sessionId: String, feedbackId: String)
+  fun ignoreFeedback(sessionId: String, feedbackId: String)
 }
 
-class DefaultDataRepository : DataRepository {
+class DefaultDataRepository(private val context: android.content.Context) : DataRepository {
+  private val file = java.io.File(context.filesDir, "yama_sessions.json")
+  private val jsonParser = kotlinx.serialization.json.Json {
+    ignoreUnknownKeys = true
+    prettyPrint = true
+  }
+
   private val _sessions = MutableStateFlow<List<PracticeSession>>(emptyList())
 
   init {
+    loadSessions()
+  }
+
+  private fun loadSessions() {
+    try {
+      if (file.exists()) {
+        val jsonStr = file.readText()
+        val list = jsonParser.decodeFromString<List<PracticeSession>>(jsonStr)
+        _sessions.value = list
+      } else {
+        // Load initial mock data
+        val initialList = createMockSessions()
+        _sessions.value = initialList
+        saveSessions(initialList)
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
+      // Fallback to mock data if load fails
+      val initialList = createMockSessions()
+      _sessions.value = initialList
+    }
+  }
+
+  private fun saveSessions(list: List<PracticeSession>) {
+    try {
+      val jsonStr = jsonParser.encodeToString(list)
+      file.writeText(jsonStr)
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
+
+  private fun createMockSessions(): List<PracticeSession> {
     val mendelssohnId = UUID.randomUUID().toString()
     val schradieckId = UUID.randomUUID().toString()
     val kreutzerId = UUID.randomUUID().toString()
 
-    _sessions.value = listOf(
+    return listOf(
       PracticeSession(
         id = mendelssohnId,
         date = "28.05.2026",
@@ -150,24 +201,85 @@ class DefaultDataRepository : DataRepository {
   override val sessions: Flow<List<PracticeSession>> = _sessions.asStateFlow()
 
   override fun addSession(session: PracticeSession) {
+    // Generate automatic pre-analysis hints if there is an audio file and no feedback items yet
+    val updatedSession = if (!session.audioUri.isNullOrBlank() && session.feedbackItems.isEmpty()) {
+      val generatedHints = AudioPreAnalyzer.analyze(session.id, session.audioUri, session.audioDurationSeconds, session.piece)
+      session.copy(feedbackItems = generatedHints)
+    } else {
+      session
+    }
+
     _sessions.update { current ->
-      listOf(session) + current
+      val updatedList = listOf(updatedSession) + current
+      saveSessions(updatedList)
+      updatedList
     }
   }
 
   override fun addFeedbackToSession(sessionId: String, feedback: TimestampedFeedback) {
     _sessions.update { current ->
-      current.map { session ->
+      val updatedList = current.map { session ->
         if (session.id == sessionId) {
           session.copy(feedbackItems = session.feedbackItems + feedback)
         } else {
           session
         }
       }
+      saveSessions(updatedList)
+      updatedList
+    }
+  }
+
+  override fun acceptFeedback(sessionId: String, feedbackId: String) {
+    _sessions.update { current ->
+      val updatedList = current.map { session ->
+        if (session.id == sessionId) {
+          session.copy(feedbackItems = session.feedbackItems.map { item ->
+            if (item.id == feedbackId) {
+              item.copy(isAccepted = true, source = "Übernommen aus Analyse")
+            } else {
+              item
+            }
+          })
+        } else {
+          session
+        }
+      }
+      saveSessions(updatedList)
+      updatedList
+    }
+  }
+
+  override fun ignoreFeedback(sessionId: String, feedbackId: String) {
+    _sessions.update { current ->
+      val updatedList = current.map { session ->
+        if (session.id == sessionId) {
+          session.copy(feedbackItems = session.feedbackItems.map { item ->
+            if (item.id == feedbackId) {
+              item.copy(isIgnored = true)
+            } else {
+              item
+            }
+          })
+        } else {
+          session
+        }
+      }
+      saveSessions(updatedList)
+      updatedList
     }
   }
 }
 
 object RepositoryProvider {
-  val repository: DataRepository = DefaultDataRepository()
+  private var _repository: DataRepository? = null
+
+  val repository: DataRepository
+    get() = _repository ?: throw IllegalStateException("RepositoryProvider not initialized! Call initialize(context) in MainActivity.")
+
+  fun initialize(context: android.content.Context) {
+    if (_repository == null) {
+      _repository = DefaultDataRepository(context.applicationContext)
+    }
+  }
 }

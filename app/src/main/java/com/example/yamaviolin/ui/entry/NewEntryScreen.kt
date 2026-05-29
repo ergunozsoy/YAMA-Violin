@@ -379,7 +379,7 @@ fun NewEntryScreen(
                   color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                  text = "Dauer: ${formatTime(audioSavedDuration)} • Zum Anhören tippen",
+                  text = "Aufnahmedauer: ${formatTime(audioSavedDuration)} • Zum Anhören tippen",
                   style = MaterialTheme.typography.bodySmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -564,7 +564,7 @@ fun NewEntryScreen(
       Button(
         onClick = {
           if (pieceTitle.isNotBlank()) {
-            val duration = durationStr.toIntOrNull() ?: 30
+            val duration = durationStr.toIntOrNull()
             val todayFormatted = SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN).format(Date())
             val newSession = PracticeSession(
               date = todayFormatted,
