@@ -70,6 +70,8 @@ import android.net.Uri
 import androidx.compose.runtime.DisposableEffect
 import com.example.yamaviolin.data.RepositoryProvider
 import com.example.yamaviolin.data.TimestampedFeedback
+import com.example.yamaviolin.data.MusicalFeedback
+import com.example.yamaviolin.data.MusicalFeedbackGenerator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import java.util.Locale
@@ -650,6 +652,84 @@ fun EntryDetailScreen(
                   }
                 }
               }
+            }
+          }
+        }
+
+        // Musikalische Rückmeldung Section
+        val musicalFeedback = remember(currentSession) {
+          MusicalFeedbackGenerator.generateFeedback(currentSession)
+        }
+
+        Card(
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(16.dp),
+          colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+          ),
+          border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+        ) {
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
+            // Header
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+              Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+              )
+              Text(
+                text = "Musikalische Rückmeldung",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary
+              )
+            }
+
+            // 1. Eindruck
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              Text(
+                text = "Eindruck",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
+              Text(
+                text = musicalFeedback.impression,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+              )
+            }
+
+            // 2. Beobachtung
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              Text(
+                text = "Beobachtung",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
+              Text(
+                text = musicalFeedback.observation,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+              )
+            }
+
+            // 3. Nächster Übeschritt
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              Text(
+                text = "Nächster Übeschritt",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
+              Text(
+                text = musicalFeedback.nextPracticeStep,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+              )
             }
           }
         }
