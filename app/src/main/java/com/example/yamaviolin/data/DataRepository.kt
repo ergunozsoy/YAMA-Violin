@@ -23,7 +23,8 @@ data class TimestampedFeedback(
   val canBeAccepted: Boolean = true,
   val isIgnored: Boolean = false,
   val isAccepted: Boolean = false,
-  val source: String = "Manuell hinzugefügt"
+  val source: String = "Manuell hinzugefügt",
+  val isPracticePoint: Boolean = false
 )
 
 @Serializable
@@ -52,6 +53,9 @@ interface DataRepository {
   fun addFeedbackToSession(sessionId: String, feedback: TimestampedFeedback)
   fun acceptFeedback(sessionId: String, feedbackId: String)
   fun ignoreFeedback(sessionId: String, feedbackId: String)
+  fun undoAcceptFeedback(sessionId: String, feedbackId: String)
+  fun restoreFeedback(sessionId: String, feedbackId: String)
+  fun togglePracticePoint(sessionId: String, feedbackId: String)
 }
 
 class DefaultDataRepository(private val context: android.content.Context) : DataRepository {
@@ -236,7 +240,7 @@ class DefaultDataRepository(private val context: android.content.Context) : Data
         if (session.id == sessionId) {
           session.copy(feedbackItems = session.feedbackItems.map { item ->
             if (item.id == feedbackId) {
-              item.copy(isAccepted = true, source = "Übernommen aus Analyse")
+              item.copy(isAccepted = true, isIgnored = false, source = "Übernommen aus Analyse")
             } else {
               item
             }
@@ -256,7 +260,67 @@ class DefaultDataRepository(private val context: android.content.Context) : Data
         if (session.id == sessionId) {
           session.copy(feedbackItems = session.feedbackItems.map { item ->
             if (item.id == feedbackId) {
-              item.copy(isIgnored = true)
+              item.copy(isIgnored = true, isAccepted = false)
+            } else {
+              item
+            }
+          })
+        } else {
+          session
+        }
+      }
+      saveSessions(updatedList)
+      updatedList
+    }
+  }
+
+  override fun undoAcceptFeedback(sessionId: String, feedbackId: String) {
+    _sessions.update { current ->
+      val updatedList = current.map { session ->
+        if (session.id == sessionId) {
+          session.copy(feedbackItems = session.feedbackItems.map { item ->
+            if (item.id == feedbackId) {
+              item.copy(isAccepted = false, source = "Automatisch erkannt")
+            } else {
+              item
+            }
+          })
+        } else {
+          session
+        }
+      }
+      saveSessions(updatedList)
+      updatedList
+    }
+  }
+
+  override fun restoreFeedback(sessionId: String, feedbackId: String) {
+    _sessions.update { current ->
+      val updatedList = current.map { session ->
+        if (session.id == sessionId) {
+          session.copy(feedbackItems = session.feedbackItems.map { item ->
+            if (item.id == feedbackId) {
+              item.copy(isIgnored = false)
+            } else {
+              item
+            }
+          })
+        } else {
+          session
+        }
+      }
+      saveSessions(updatedList)
+      updatedList
+    }
+  }
+
+  override fun togglePracticePoint(sessionId: String, feedbackId: String) {
+    _sessions.update { current ->
+      val updatedList = current.map { session ->
+        if (session.id == sessionId) {
+          session.copy(feedbackItems = session.feedbackItems.map { item ->
+            if (item.id == feedbackId) {
+              item.copy(isPracticePoint = !item.isPracticePoint)
             } else {
               item
             }

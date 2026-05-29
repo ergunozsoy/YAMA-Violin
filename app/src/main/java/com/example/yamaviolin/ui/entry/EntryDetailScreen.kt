@@ -2,12 +2,15 @@ package com.example.yamaviolin.ui.entry
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -161,9 +164,9 @@ fun EntryDetailScreen(
     }
   }
 
-  // Dialog and bookmark states
+  // Dialog and collapsible states
   var showAddFeedbackDialog by remember { mutableStateOf(false) }
-  var bookmarkedItems by remember { mutableStateOf(setOf<String>()) }
+  var showIgnoredSuggestions by remember { mutableStateOf(false) }
 
   Scaffold(
     modifier = modifier,
@@ -616,12 +619,14 @@ fun EntryDetailScreen(
 
           // Filter feedbackItems
           val feedbackItems = currentSession.feedbackItems
-          val manualOrAcceptedItems = feedbackItems.filter { !it.isAutomatic || it.isAccepted }
           val automaticSuggestions = feedbackItems.filter { it.isAutomatic && !it.isAccepted && !it.isIgnored }
+          val manualOrAcceptedItems = feedbackItems.filter { !it.isAutomatic || (it.isAutomatic && it.isAccepted) }
+          val markedPracticePoints = feedbackItems.filter { it.isPracticePoint }
+          val ignoredSuggestions = feedbackItems.filter { it.isAutomatic && it.isIgnored && !it.isAccepted }
 
-          // Section 1: Manuelle Übungsnotizen & bestätigte Hinweise
+          // Section 1: Übungsnotizen (übernommen)
           Text(
-            text = "Übungsnotizen (Manuell / Übernommen)",
+            text = "Übungsnotizen (übernommen)",
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(top = 8.dp)
@@ -652,7 +657,6 @@ fun EntryDetailScreen(
               manualOrAcceptedItems.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 FeedbackCard(
                   item = feedbackItem,
-                  isBookmarked = bookmarkedItems.contains(feedbackItem.id),
                   onListenClick = {
                     playProgressSeconds = feedbackItem.startTimeSeconds
                     if (isRealAudio) {
@@ -670,18 +674,19 @@ fun EntryDetailScreen(
                     }
                   },
                   onBookmarkClick = {
-                    bookmarkedItems = if (bookmarkedItems.contains(feedbackItem.id)) {
-                      bookmarkedItems - feedbackItem.id
-                    } else {
-                      bookmarkedItems + feedbackItem.id
-                    }
+                    RepositoryProvider.repository.togglePracticePoint(currentSession.id, feedbackItem.id)
+                  },
+                  onUndoClick = if (feedbackItem.isAutomatic) {
+                    { RepositoryProvider.repository.undoAcceptFeedback(currentSession.id, feedbackItem.id) }
+                  } else {
+                    null
                   }
                 )
               }
             }
           }
 
-          // Section 2: Automatische Analyse-Vorschläge
+          // Section 2: Automatische Vorschläge
           Text(
             text = "Automatische Vorschläge",
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
@@ -714,7 +719,6 @@ fun EntryDetailScreen(
               automaticSuggestions.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 AutomaticSuggestionCard(
                   item = feedbackItem,
-                  isBookmarked = bookmarkedItems.contains(feedbackItem.id),
                   onListenClick = {
                     playProgressSeconds = feedbackItem.startTimeSeconds
                     if (isRealAudio) {
@@ -738,13 +742,141 @@ fun EntryDetailScreen(
                     RepositoryProvider.repository.ignoreFeedback(currentSession.id, feedbackItem.id)
                   },
                   onBookmarkClick = {
-                    bookmarkedItems = if (bookmarkedItems.contains(feedbackItem.id)) {
-                      bookmarkedItems - feedbackItem.id
-                    } else {
-                      bookmarkedItems + feedbackItem.id
-                    }
+                    RepositoryProvider.repository.togglePracticePoint(currentSession.id, feedbackItem.id)
                   }
                 )
+              }
+            }
+          }
+
+          // Section 3: Markierte Übungsstellen
+          Text(
+            text = "Markierte Übungsstellen",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(top = 12.dp)
+          )
+
+          if (markedPracticePoints.isEmpty()) {
+            Card(
+              modifier = Modifier.fillMaxWidth(),
+              shape = RoundedCornerShape(12.dp),
+              colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+              border = CardDefaults.outlinedCardBorder()
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(16.dp),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = "Keine markierten Übungsstellen vorhanden.",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+              }
+            }
+          } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              markedPracticePoints.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
+                FeedbackCard(
+                  item = feedbackItem,
+                  onListenClick = {
+                    playProgressSeconds = feedbackItem.startTimeSeconds
+                    if (isRealAudio) {
+                      try {
+                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
+                        if (!isPlaying) {
+                          mediaPlayer?.start()
+                          isPlaying = true
+                        }
+                      } catch (e: Exception) {
+                        e.printStackTrace()
+                      }
+                    } else {
+                      isPlaying = true
+                    }
+                  },
+                  onBookmarkClick = {
+                    RepositoryProvider.repository.togglePracticePoint(currentSession.id, feedbackItem.id)
+                  },
+                  onUndoClick = null,
+                  isMarkedSection = true
+                )
+              }
+            }
+          }
+
+          // Section 4: Ignorierte Vorschläge (Collapsible)
+          Spacer(modifier = Modifier.height(4.dp))
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clickable { showIgnoredSuggestions = !showIgnoredSuggestions }
+              .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(
+              text = "Ignorierte Vorschläge (${ignoredSuggestions.size})",
+              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+            Text(
+              text = if (showIgnoredSuggestions) "▲" else "▼",
+              style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+            )
+          }
+
+          if (showIgnoredSuggestions) {
+            if (ignoredSuggestions.isEmpty()) {
+              Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)),
+                border = CardDefaults.outlinedCardBorder()
+              ) {
+                Box(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Text(
+                    text = "Keine ignorierten Vorschläge vorhanden.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                  )
+                }
+              }
+            } else {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ignoredSuggestions.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
+                  IgnoredSuggestionCard(
+                    item = feedbackItem,
+                    onListenClick = {
+                      playProgressSeconds = feedbackItem.startTimeSeconds
+                      if (isRealAudio) {
+                        try {
+                          mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
+                          if (!isPlaying) {
+                            mediaPlayer?.start()
+                            isPlaying = true
+                          }
+                        } catch (e: Exception) {
+                          e.printStackTrace()
+                        }
+                      } else {
+                        isPlaying = true
+                      }
+                    },
+                    onRestoreClick = {
+                      RepositoryProvider.repository.restoreFeedback(currentSession.id, feedbackItem.id)
+                    }
+                  )
+                }
               }
             }
           }
@@ -934,12 +1066,14 @@ fun EntryDetailScreen(
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FeedbackCard(
   item: TimestampedFeedback,
-  isBookmarked: Boolean,
   onListenClick: () -> Unit,
-  onBookmarkClick: () -> Unit
+  onBookmarkClick: () -> Unit,
+  onUndoClick: (() -> Unit)? = null,
+  isMarkedSection: Boolean = false
 ) {
   val typeColor = when (item.feedbackType) {
     "Stärke" -> Color(0xFF27AE60)
@@ -959,10 +1093,9 @@ fun FeedbackCard(
       modifier = Modifier.padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      Row(
+      Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
       ) {
         // Time Stamp
         Text(
@@ -972,10 +1105,28 @@ fun FeedbackCard(
         )
 
         // Badges Row
-        Row(
+        FlowRow(
           horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalAlignment = Alignment.CenterVertically
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+          modifier = Modifier.fillMaxWidth()
         ) {
+          // Practice Point Badge
+          if (item.isPracticePoint) {
+            Box(
+              modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF27AE60).copy(alpha = 0.15f))
+                .border(1.dp, Color(0xFF27AE60), RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = "Markiert",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFF27AE60)
+              )
+            }
+          }
+
           // Source Badge
           Box(
             modifier = Modifier
@@ -1052,54 +1203,78 @@ fun FeedbackCard(
         }
       }
 
-      // Actions Row
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-      ) {
-        Button(
-          onClick = onListenClick,
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-          shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
+      // Actions Column
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-          Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp)
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Anhören", style = MaterialTheme.typography.labelMedium)
+          Button(
+            onClick = onListenClick,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              imageVector = Icons.Default.PlayArrow,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          }
+
+          Button(
+            onClick = onBookmarkClick,
+            colors = ButtonDefaults.buttonColors(
+              containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
+            ),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.weight(1.3f)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Check,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = if (isMarkedSection) "Markierung entfernen" else (if (item.isPracticePoint) "Markiert!" else "Als Übungsstelle markieren"),
+              style = MaterialTheme.typography.labelMedium,
+              maxLines = 1
+            )
+          }
         }
 
-        Button(
-          onClick = onBookmarkClick,
-          colors = ButtonDefaults.buttonColors(
-            containerColor = if (isBookmarked) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
-          ),
-          shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1.3f)
-        ) {
-          Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp)
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text(
-            text = if (isBookmarked) "Markiert!" else "Als Übungsstelle markieren",
-            style = MaterialTheme.typography.labelMedium
-          )
+        if (onUndoClick != null) {
+          Button(
+            onClick = onUndoClick,
+            colors = ButtonDefaults.buttonColors(
+              containerColor = MaterialTheme.colorScheme.surfaceVariant,
+              contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Rückgängig", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          }
         }
       }
     }
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AutomaticSuggestionCard(
   item: TimestampedFeedback,
-  isBookmarked: Boolean,
   onListenClick: () -> Unit,
   onAcceptClick: () -> Unit,
   onIgnoreClick: () -> Unit,
@@ -1125,10 +1300,9 @@ fun AutomaticSuggestionCard(
       modifier = Modifier.padding(16.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-      Row(
+      Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
       ) {
         // Time Stamp
         Text(
@@ -1137,11 +1311,27 @@ fun AutomaticSuggestionCard(
           color = MaterialTheme.colorScheme.primary
         )
 
-        // Badges Row
-        Row(
+        // Badges FlowRow
+        FlowRow(
           horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalAlignment = Alignment.CenterVertically
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+          modifier = Modifier.fillMaxWidth()
         ) {
+          // State Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(if (item.isPracticePoint) Color(0xFF27AE60).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer)
+              .border(1.dp, if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = if (item.isPracticePoint) "Markiert" else "Neu",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.onPrimaryContainer
+            )
+          }
+
           // Source badge
           Box(
             modifier = Modifier
@@ -1167,6 +1357,20 @@ fun AutomaticSuggestionCard(
               text = item.category,
               style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
               color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+          }
+
+          // Type Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .border(1.dp, typeColor, RoundedCornerShape(4.dp))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = item.feedbackType,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = typeColor
             )
           }
         }
@@ -1229,7 +1433,7 @@ fun AutomaticSuggestionCard(
         Button(
           onClick = onBookmarkClick,
           colors = ButtonDefaults.buttonColors(
-            containerColor = if (isBookmarked) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
+            containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
           ),
           shape = RoundedCornerShape(8.dp),
           modifier = Modifier.weight(1f)
@@ -1241,7 +1445,7 @@ fun AutomaticSuggestionCard(
           )
           Spacer(modifier = Modifier.width(6.dp))
           Text(
-            text = if (isBookmarked) "Markiert!" else "Übungsstelle",
+            text = if (item.isPracticePoint) "Markiert!" else "Übungsstelle",
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1
           )
@@ -1283,6 +1487,168 @@ fun AutomaticSuggestionCard(
           )
           Spacer(modifier = Modifier.width(6.dp))
           Text("Ignorieren", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun IgnoredSuggestionCard(
+  item: TimestampedFeedback,
+  onListenClick: () -> Unit,
+  onRestoreClick: () -> Unit
+) {
+  val typeColor = when (item.feedbackType) {
+    "Stärke" -> Color(0xFF27AE60).copy(alpha = 0.6f)
+    "Hinweis" -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f)
+    "Problem" -> Color(0xFFC0392B).copy(alpha = 0.6f)
+    "Übungsziel" -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+  }
+
+  Card(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(12.dp),
+    colors = CardDefaults.cardColors(
+      containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    ),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+  ) {
+    Column(
+      modifier = Modifier.padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Time Stamp
+        Text(
+          text = "${formatTime(item.startTimeSeconds)} – ${formatTime(item.endTimeSeconds)}",
+          style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+          color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+        )
+
+        // Badges FlowRow
+        FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          // Ignored State Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+              .border(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = "Ignoriert",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+            )
+          }
+
+          // Category Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = item.category,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+            )
+          }
+
+          // Type Badge
+          Box(
+            modifier = Modifier
+              .clip(RoundedCornerShape(4.dp))
+              .border(1.dp, typeColor, RoundedCornerShape(4.dp))
+              .padding(horizontal = 6.dp, vertical = 2.dp)
+          ) {
+            Text(
+              text = item.feedbackType,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = typeColor
+            )
+          }
+        }
+      }
+
+      // Comment
+      Text(
+        text = item.comment,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+      )
+
+      // Suggestion
+      if (item.practiceSuggestion.isNotBlank()) {
+        Card(
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(8.dp),
+          colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+          )
+        ) {
+          Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+              text = "Übungsvorschlag:",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+              text = item.practiceSuggestion,
+              style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+              color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+          }
+        }
+      }
+
+      // Actions: Row (Anhören & Wiederherstellen)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        // Anhören
+        Button(
+          onClick = onListenClick,
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        }
+
+        // Wiederherstellen
+        Button(
+          onClick = onRestoreClick,
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Wiederherstellen", style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
       }
     }
