@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
@@ -28,6 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import com.example.yamaviolin.NewEntry
 import com.example.yamaviolin.data.RepositoryProvider
+import com.example.yamaviolin.ui.about.AboutScreen
 import com.example.yamaviolin.ui.dashboard.DashboardScreen
 import com.example.yamaviolin.ui.history.HistoryScreen
 import com.example.yamaviolin.ui.tools.ToolsScreen
@@ -63,10 +65,16 @@ fun MainScreen(
           icon = { Icon(Icons.Default.Build, contentDescription = "Werkzeuge") },
           label = { Text("Werkzeuge") }
         )
+        NavigationBarItem(
+          selected = selectedTab == 3,
+          onClick = { selectedTab = 3 },
+          icon = { Icon(Icons.Default.Info, contentDescription = "Über YAMA") },
+          label = { Text("Info") }
+        )
       }
     },
     floatingActionButton = {
-      if (selectedTab != 2) {
+      if (selectedTab != 2 && selectedTab != 3) {
         FloatingActionButton(
           onClick = { onNavigate(NewEntry) },
           containerColor = MaterialTheme.colorScheme.primary,
@@ -100,6 +108,9 @@ fun MainScreen(
             modifier = contentModifier
           )
           2 -> ToolsScreen(
+            modifier = contentModifier
+          )
+          3 -> AboutScreen(
             modifier = contentModifier
           )
         }

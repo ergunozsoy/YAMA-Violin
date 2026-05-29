@@ -8,6 +8,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.example.yamaviolin.ui.entry.NewEntryScreen
 import com.example.yamaviolin.ui.entry.EntryDetailScreen
+import com.example.yamaviolin.ui.entry.ImportPreviewScreen
 import com.example.yamaviolin.ui.main.MainScreen
 
 @Composable
@@ -27,6 +28,7 @@ fun MainNavigation() {
         }
         entry<NewEntry> {
           NewEntryScreen(
+            onNavigate = { navKey -> backStack.add(navKey) },
             onBack = { backStack.removeLastOrNull() },
             modifier = Modifier.fillMaxSize()
           )
@@ -34,6 +36,13 @@ fun MainNavigation() {
         entry<EntryDetail> { key ->
           EntryDetailScreen(
             sessionId = key.sessionId,
+            onBack = { backStack.removeLastOrNull() },
+            modifier = Modifier.fillMaxSize()
+          )
+        }
+        entry<ImportPreview> { key ->
+          ImportPreviewScreen(
+            uriString = key.uriString,
             onBack = { backStack.removeLastOrNull() },
             modifier = Modifier.fillMaxSize()
           )

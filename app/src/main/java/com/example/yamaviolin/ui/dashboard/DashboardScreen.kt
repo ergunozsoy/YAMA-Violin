@@ -1,5 +1,7 @@
 package com.example.yamaviolin.ui.dashboard
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
 import com.example.yamaviolin.EntryDetail
+import com.example.yamaviolin.ImportPreview
 import com.example.yamaviolin.NewEntry
 import com.example.yamaviolin.data.PracticeSession
 import java.text.SimpleDateFormat
@@ -51,6 +54,14 @@ fun DashboardScreen(
 ) {
   val scrollState = rememberScrollState()
   val todayDate = SimpleDateFormat("EEEE, d. MMMM yyyy", Locale.GERMAN).format(Date())
+
+  val importLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.GetContent()
+  ) { uri ->
+    if (uri != null) {
+      onNavigate(ImportPreview(uri.toString()))
+    }
+  }
 
   // Calculate statistics
   val totalMinutesThisWeek = sessions.sumOf { it.durationMinutes }
@@ -169,6 +180,41 @@ fun DashboardScreen(
             text = "Achte heute besonders auf eine gerade Bogenführung parallel zum Steg. Verwende einen Spiegel zur Selbstkontrolle.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
+          )
+        }
+      }
+    }
+
+    // Import Card
+    Card(
+      modifier = Modifier
+        .fillMaxWidth()
+        .clickable { importLauncher.launch("audio/*") },
+      shape = RoundedCornerShape(12.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+      Row(
+        modifier = Modifier.padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+      ) {
+        Icon(
+          imageVector = Icons.Default.PlayArrow,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary
+        )
+        Column {
+          Text(
+            text = "Frühere Aufnahme importieren",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
+          )
+          Spacer(modifier = Modifier.height(2.dp))
+          Text(
+            text = "Wähle eine bestehende Audiodatei aus deinem Gerätespeicher aus.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
           )
         }
       }

@@ -1,5 +1,7 @@
 package com.example.yamaviolin.ui.entry
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -62,10 +65,19 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NewEntryScreen(
+  onNavigate: (androidx.navigation3.runtime.NavKey) -> Unit,
   onBack: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   val scrollState = rememberScrollState()
+
+  val importLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.GetContent()
+  ) { uri ->
+    if (uri != null) {
+      onNavigate(com.example.yamaviolin.ImportPreview(uri.toString()))
+    }
+  }
 
   // Form states
   var pieceTitle by remember { mutableStateOf("") }
@@ -319,6 +331,21 @@ fun NewEntryScreen(
             Text(if (isRecording) "Aufnahme stoppen" else "Aufnahme starten")
           }
         }
+      }
+
+      // Frühere Aufnahme importieren Button
+      Button(
+        onClick = { importLauncher.launch("audio/*") },
+        colors = ButtonDefaults.buttonColors(
+          containerColor = MaterialTheme.colorScheme.secondaryContainer,
+          contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+      ) {
+        Icon(imageVector = Icons.Default.Info, contentDescription = null)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Frühere Aufnahme importieren")
       }
 
       // Notes Input
