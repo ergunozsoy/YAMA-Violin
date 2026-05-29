@@ -28,7 +28,12 @@ data class PracticeSession(
   val audioDurationSeconds: Int = 0, // 0 means no audio recording
   val feedbackItems: List<TimestampedFeedback> = emptyList(),
   val autoHints: List<String> = emptyList(),
-  val isImported: Boolean = false
+  val isImported: Boolean = false,
+  val audioUri: String? = null,
+  val audioSource: String? = null, // "Neue Aufnahme" or "Importierte Aufnahme"
+  val originalFileName: String? = null,
+  val recordingDate: String? = null,
+  val importDate: String? = null
 )
 
 interface DataRepository {

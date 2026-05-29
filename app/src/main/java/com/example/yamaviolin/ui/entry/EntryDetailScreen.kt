@@ -57,10 +57,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import android.media.MediaPlayer
+import android.net.Uri
+import androidx.compose.runtime.DisposableEffect
 import com.example.yamaviolin.data.RepositoryProvider
 import com.example.yamaviolin.data.TimestampedFeedback
 import kotlinx.coroutines.delay
@@ -84,22 +88,75 @@ fun EntryDetailScreen(
   }
   val session by sessionFlow.collectAsState(initial = null)
 
-  // Simulated playback state
+  val context = LocalContext.current
+  val audioPath = session?.audioUri
+  val isRealAudio = !audioPath.isNullOrBlank()
+
+  // Playback state
   var isPlaying by remember { mutableStateOf(false) }
   var playProgressSeconds by remember { mutableIntStateOf(0) }
+  var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
 
   val audioDuration = session?.audioDurationSeconds ?: 0
 
-  // Handle media playback animation
-  LaunchedEffect(isPlaying, audioDuration) {
-    if (isPlaying && audioDuration > 0) {
-      while (isPlaying && playProgressSeconds < audioDuration) {
-        delay(1000)
-        playProgressSeconds++
+  // Real MediaPlayer initialization
+  LaunchedEffect(audioPath) {
+    if (!audioPath.isNullOrBlank()) {
+      try {
+        val mp = MediaPlayer().apply {
+          if (audioPath.startsWith("content://")) {
+            setDataSource(context, Uri.parse(audioPath))
+          } else {
+            setDataSource(audioPath)
+          }
+          prepare()
+        }
+        mediaPlayer = mp
+      } catch (e: Exception) {
+        e.printStackTrace()
       }
-      if (playProgressSeconds >= audioDuration) {
-        isPlaying = false
-        playProgressSeconds = 0
+    }
+  }
+
+  // Real MediaPlayer completion listener
+  LaunchedEffect(mediaPlayer) {
+    mediaPlayer?.setOnCompletionListener {
+      isPlaying = false
+      playProgressSeconds = 0
+    }
+  }
+
+  // Handle media playback animation (real polling or simulated timer fallback)
+  LaunchedEffect(isPlaying, mediaPlayer, isRealAudio, audioDuration) {
+    if (isPlaying) {
+      if (isRealAudio) {
+        val mp = mediaPlayer
+        if (mp != null) {
+          while (isPlaying && mp.isPlaying) {
+            playProgressSeconds = mp.currentPosition / 1000
+            delay(250)
+          }
+        }
+      } else {
+        while (isPlaying && playProgressSeconds < audioDuration) {
+          delay(1000)
+          playProgressSeconds++
+        }
+        if (playProgressSeconds >= audioDuration) {
+          isPlaying = false
+          playProgressSeconds = 0
+        }
+      }
+    }
+  }
+
+  DisposableEffect(Unit) {
+    onDispose {
+      try {
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+      } catch (e: Exception) {
+        // ignore
       }
     }
   }
@@ -264,7 +321,26 @@ fun EntryDetailScreen(
                   horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                   IconButton(
-                    onClick = { isPlaying = !isPlaying },
+                    onClick = {
+                      if (isRealAudio) {
+                        val mp = mediaPlayer
+                        if (mp != null) {
+                          if (isPlaying) {
+                            mp.pause()
+                            isPlaying = false
+                          } else {
+                            if (playProgressSeconds >= audioDuration) {
+                              mp.seekTo(0)
+                              playProgressSeconds = 0
+                            }
+                            mp.start()
+                            isPlaying = true
+                          }
+                        }
+                      } else {
+                        isPlaying = !isPlaying
+                      }
+                    },
                     colors = IconButtonDefaults.iconButtonColors(
                       containerColor = MaterialTheme.colorScheme.primary,
                       contentColor = MaterialTheme.colorScheme.onPrimary
@@ -285,7 +361,12 @@ fun EntryDetailScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Slider(
                       value = playProgressSeconds.toFloat(),
-                      onValueChange = { playProgressSeconds = it.toInt() },
+                      onValueChange = {
+                        playProgressSeconds = it.toInt()
+                        if (isRealAudio) {
+                          mediaPlayer?.seekTo((it * 1000).toInt())
+                        }
+                      },
                       valueRange = 0f..audioDuration.toFloat(),
                       modifier = Modifier.fillMaxWidth()
                     )
@@ -300,6 +381,56 @@ fun EntryDetailScreen(
                       Text(
                         text = formatTime(audioDuration),
                         style = MaterialTheme.typography.labelSmall
+                      )
+                    }
+                  }
+                }
+
+                // Local recording details
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                  verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                  Text(
+                    text = "Diese Aufnahme wurde lokal in der App gespeichert.",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary
+                  )
+                  if (currentSession.isImported) {
+                    Text(
+                      text = "Quelle: Importierte Aufnahme",
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    currentSession.originalFileName?.let { fname ->
+                      Text(
+                        text = "Original-Datei: $fname",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
+                    currentSession.importDate?.let { idate ->
+                      Text(
+                        text = "Importiert am: $idate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                      )
+                    }
+                  } else {
+                    Text(
+                      text = "Quelle: Neue In-App Aufnahme",
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    currentSession.recordingDate?.let { rdate ->
+                      Text(
+                        text = "Aufgenommen am: $rdate",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                       )
                     }
                   }
@@ -434,7 +565,19 @@ fun EntryDetailScreen(
                   isBookmarked = bookmarkedItems.contains(feedbackItem.id),
                   onListenClick = {
                     playProgressSeconds = feedbackItem.startTimeSeconds
-                    isPlaying = true
+                    if (isRealAudio) {
+                      try {
+                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
+                        if (!isPlaying) {
+                          mediaPlayer?.start()
+                          isPlaying = true
+                        }
+                      } catch (e: Exception) {
+                        e.printStackTrace()
+                      }
+                    } else {
+                      isPlaying = true
+                    }
                   },
                   onBookmarkClick = {
                     bookmarkedItems = if (bookmarkedItems.contains(feedbackItem.id)) {
@@ -456,8 +599,8 @@ fun EntryDetailScreen(
 
   // Dialog to Add Manual Feedback Item
   if (showAddFeedbackDialog && session != null) {
-    var startStr by remember { mutableStateOf("") }
-    var endStr by remember { mutableStateOf("") }
+    var startStr by remember { mutableStateOf(playProgressSeconds.toString()) }
+    var endStr by remember { mutableStateOf(if (audioDuration > 0) (playProgressSeconds + 5).coerceAtMost(audioDuration).toString() else "5") }
     var comment by remember { mutableStateOf("") }
     var suggestion by remember { mutableStateOf("") }
 

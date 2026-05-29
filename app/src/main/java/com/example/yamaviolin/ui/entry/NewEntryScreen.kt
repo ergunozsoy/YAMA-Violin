@@ -55,6 +55,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.os.Build
+import android.widget.Toast
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import java.io.File
 import com.example.yamaviolin.data.PracticeSession
 import com.example.yamaviolin.data.RepositoryProvider
 import kotlinx.coroutines.delay
@@ -87,10 +97,37 @@ fun NewEntryScreen(
   val selectedFocus = remember { mutableStateListOf<String>() }
   var notes by remember { mutableStateOf("") }
 
-  // Simulated recording states
+  val context = LocalContext.current
+
+  // Real recording and playback states
+  var hasPermission by remember {
+    mutableStateOf(
+      ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.RECORD_AUDIO
+      ) == PackageManager.PERMISSION_GRANTED
+    )
+  }
+
+  val permissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission()
+  ) { isGranted ->
+    hasPermission = isGranted
+    if (!isGranted) {
+      Toast.makeText(context, "Mikrofonberechtigung erforderlich", Toast.LENGTH_SHORT).show()
+    }
+  }
+
+  var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+  var recordedAudioPath by remember { mutableStateOf<String?>(null) }
   var isRecording by remember { mutableStateOf(false) }
   var recordedSeconds by remember { mutableIntStateOf(0) }
   var audioSavedDuration by remember { mutableIntStateOf(0) }
+
+  // Preview playback states
+  var isPlayingRecorded by remember { mutableStateOf(false) }
+  var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+  var playbackProgressSeconds by remember { mutableIntStateOf(0) }
 
   // Waveform animation
   val waveBars = remember { mutableStateListOf(10.dp, 20.dp, 15.dp, 30.dp, 8.dp, 25.dp, 12.dp, 18.dp, 22.dp, 14.dp, 10.dp) }
@@ -111,6 +148,45 @@ fun NewEntryScreen(
         for (i in waveBars.indices) {
           waveBars[i] = (6..36).random().dp
         }
+      }
+    }
+  }
+
+  LaunchedEffect(isPlayingRecorded, previewPlayer) {
+    val player = previewPlayer
+    if (isPlayingRecorded && player != null) {
+      while (isPlayingRecorded && player.isPlaying) {
+        playbackProgressSeconds = player.currentPosition / 1000
+        delay(250)
+      }
+      if (player != null && !player.isPlaying) {
+        isPlayingRecorded = false
+        playbackProgressSeconds = 0
+      }
+    }
+  }
+
+  LaunchedEffect(previewPlayer) {
+    previewPlayer?.setOnCompletionListener {
+      isPlayingRecorded = false
+      playbackProgressSeconds = 0
+    }
+  }
+
+  DisposableEffect(Unit) {
+    onDispose {
+      try {
+        mediaRecorder?.apply {
+          stop()
+          release()
+        }
+      } catch (e: Exception) {
+        // ignore
+      }
+      try {
+        previewPlayer?.release()
+      } catch (e: Exception) {
+        // ignore
       }
     }
   }
@@ -235,7 +311,7 @@ fun NewEntryScreen(
         }
       }
 
-      // Simulated Audio Recorder Widget
+      // Audio Recorder Widget
       Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -248,7 +324,7 @@ fun NewEntryScreen(
           horizontalAlignment = Alignment.CenterHorizontally
         ) {
           Text(
-            text = "Audioaufnahme (Prototyp)",
+            text = "Audioaufnahme",
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.primary
           )
@@ -296,39 +372,160 @@ fun NewEntryScreen(
                 color = Color.Red
               )
             } else if (audioSavedDuration > 0) {
-              Text(
-                text = String.format(Locale.GERMAN, "Mock-Aufnahme gespeichert (%02d:%02d)", audioSavedDuration / 60, audioSavedDuration % 60),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-              )
+              Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                  text = "Aufnahme gespeichert",
+                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                  text = "Dauer: ${formatTime(audioSavedDuration)} • Zum Anhören tippen",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                  text = "Diese Aufnahme wurde lokal in der App gespeichert.",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                  modifier = Modifier.padding(top = 4.dp)
+                )
+              }
             } else {
               Text(
-                text = "Bereit zur Aufnahme",
+                text = if (!hasPermission) "Mikrofonberechtigung erforderlich" else "Bereit zur Aufnahme",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (!hasPermission) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant
               )
             }
           }
 
           Spacer(modifier = Modifier.height(16.dp))
 
-          // Control Button
-          Button(
-            onClick = {
-              if (isRecording) {
-                isRecording = false
-                audioSavedDuration = recordedSeconds
-              } else {
-                isRecording = true
-                recordedSeconds = 0
-                audioSavedDuration = 0
+          // Control Button or actions
+          if (audioSavedDuration > 0 && recordedAudioPath != null) {
+            Row(
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              // Play/Pause Button
+              Button(
+                onClick = {
+                  val path = recordedAudioPath
+                  if (path != null) {
+                    if (isPlayingRecorded) {
+                      previewPlayer?.pause()
+                      isPlayingRecorded = false
+                    } else {
+                      try {
+                        if (previewPlayer == null) {
+                          previewPlayer = MediaPlayer().apply {
+                            setDataSource(path)
+                            prepare()
+                          }
+                        }
+                        previewPlayer?.start()
+                        isPlayingRecorded = true
+                      } catch (e: Exception) {
+                        e.printStackTrace()
+                        Toast.makeText(context, "Fehler beim Abspielen: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                      }
+                    }
+                  }
+                },
+                modifier = Modifier.weight(1f)
+              ) {
+                Text(if (isPlayingRecorded) "Pause" else "Anhören")
               }
-            },
-            colors = ButtonDefaults.buttonColors(
-              containerColor = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
-            )
-          ) {
-            Text(if (isRecording) "Aufnahme stoppen" else "Aufnahme starten")
+
+              // Re-record Button
+              Button(
+                onClick = {
+                  try {
+                    previewPlayer?.stop()
+                    previewPlayer?.release()
+                  } catch (e: Exception) {
+                    // ignore
+                  }
+                  previewPlayer = null
+                  isPlayingRecorded = false
+                  playbackProgressSeconds = 0
+
+                  // Delete file
+                  recordedAudioPath?.let { path ->
+                    val file = File(path)
+                    if (file.exists()) {
+                      file.delete()
+                    }
+                  }
+
+                  recordedAudioPath = null
+                  audioSavedDuration = 0
+                  recordedSeconds = 0
+                },
+                colors = ButtonDefaults.buttonColors(
+                  containerColor = MaterialTheme.colorScheme.error,
+                  contentColor = MaterialTheme.colorScheme.onError
+                ),
+                modifier = Modifier.weight(1f)
+              ) {
+                Text("Erneut aufnehmen")
+              }
+            }
+          } else {
+            Button(
+              onClick = {
+                if (!hasPermission) {
+                  permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                } else {
+                  if (isRecording) {
+                    // Stop recording
+                    try {
+                      mediaRecorder?.apply {
+                        stop()
+                        release()
+                      }
+                    } catch (e: Exception) {
+                      e.printStackTrace()
+                    }
+                    mediaRecorder = null
+                    isRecording = false
+                    audioSavedDuration = recordedSeconds
+                  } else {
+                    // Start recording
+                    try {
+                      val file = File(context.filesDir, "rec_${System.currentTimeMillis()}.m4a")
+                      val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        MediaRecorder(context)
+                      } else {
+                        @Suppress("DEPRECATION")
+                        MediaRecorder()
+                      }
+                      recorder.apply {
+                        setAudioSource(MediaRecorder.AudioSource.MIC)
+                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                        setOutputFile(file.absolutePath)
+                        prepare()
+                        start()
+                      }
+                      mediaRecorder = recorder
+                      recordedAudioPath = file.absolutePath
+                      isRecording = true
+                      recordedSeconds = 0
+                      audioSavedDuration = 0
+                    } catch (e: Exception) {
+                      e.printStackTrace()
+                      Toast.makeText(context, "Fehler beim Starten: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    }
+                  }
+                }
+              },
+              colors = ButtonDefaults.buttonColors(
+                containerColor = if (isRecording) Color.Red else MaterialTheme.colorScheme.primary
+              )
+            ) {
+              Text(if (isRecording) "Aufnahme stoppen" else "Aufnahme starten")
+            }
           }
         }
       }
@@ -376,7 +573,11 @@ fun NewEntryScreen(
               mood = selectedMood,
               focusAreas = selectedFocus.toList(),
               notes = notes,
-              audioDurationSeconds = audioSavedDuration
+              audioDurationSeconds = audioSavedDuration,
+              audioUri = recordedAudioPath,
+              audioSource = "Neue Aufnahme",
+              recordingDate = todayFormatted,
+              isImported = false
             )
             RepositoryProvider.repository.addSession(newSession)
             onBack()
@@ -392,4 +593,10 @@ fun NewEntryScreen(
       }
     }
   }
+}
+
+private fun formatTime(seconds: Int): String {
+  val m = seconds / 60
+  val s = seconds % 60
+  return String.format(Locale.GERMAN, "%02d:%02d", m, s)
 }

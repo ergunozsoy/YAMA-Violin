@@ -419,6 +419,7 @@ fun ImportPreviewScreen(
         Button(
           onClick = {
             if (pieceTitle.isNotBlank()) {
+              val localAudioPath = copyUriToPrivateStorage(context, uri, fileName)
               val formattedTitle = if (composer.isNotBlank()) "$pieceTitle (comp. $composer)" else pieceTitle
               val newSession = PracticeSession(
                 date = importDate,
@@ -429,6 +430,11 @@ fun ImportPreviewScreen(
                 notes = if (notes.isBlank()) "Importierte Aufnahme aus Datei: $fileName" else notes,
                 audioDurationSeconds = if (durationMs > 0) (durationMs / 1000).toInt() else 60,
                 isImported = true,
+                audioUri = localAudioPath,
+                audioSource = "Importierte Aufnahme",
+                originalFileName = fileName,
+                recordingDate = importDate,
+                importDate = importDate,
                 autoHints = listOf(
                   "Diese Aufnahme wurde erfolgreich importiert. (Vorschlag – bitte überprüfen)",
                   "Die Zuordnung basiert auf Dateiname und Metadaten. (Automatische Zuordnung)",
@@ -449,6 +455,7 @@ fun ImportPreviewScreen(
         // Save Later (Defaults) Button
         TextButton(
           onClick = {
+            val localAudioPath = copyUriToPrivateStorage(context, uri, fileName)
             val fallbackTitle = if (fileName != "Unbekannt" && fileName.isNotBlank()) {
               val dotIdx = fileName.lastIndexOf('.')
               if (dotIdx != -1) fileName.substring(0, dotIdx) else fileName
@@ -464,6 +471,11 @@ fun ImportPreviewScreen(
               notes = "Schnellimportiert am $importDate. Datei: $fileName",
               audioDurationSeconds = if (durationMs > 0) (durationMs / 1000).toInt() else 60,
               isImported = true,
+              audioUri = localAudioPath,
+              audioSource = "Importierte Aufnahme",
+              originalFileName = fileName,
+              recordingDate = importDate,
+              importDate = importDate,
               autoHints = listOf(
                 "Diese Aufnahme wurde erfolgreich importiert. (Vorschlag – bitte überprüfen)",
                 "Die Zuordnung basiert auf Dateiname und Metadaten. (Automatische Zuordnung)",
@@ -540,4 +552,20 @@ private fun formatDuration(ms: Long): String {
   val min = totalSec / 60
   val sec = totalSec % 60
   return String.format(Locale.GERMAN, "%02d:%02d", min, sec)
+}
+
+private fun copyUriToPrivateStorage(context: android.content.Context, uri: Uri, fileName: String): String? {
+  return try {
+    val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+    val destFile = java.io.File(context.filesDir, "imported_${System.currentTimeMillis()}_$fileName")
+    destFile.outputStream().use { output ->
+      inputStream.use { input ->
+        input.copyTo(output)
+      }
+    }
+    destFile.absolutePath
+  } catch (e: Exception) {
+    e.printStackTrace()
+    null
+  }
 }
