@@ -99,8 +99,18 @@ fun EntryDetailScreen(
   var isPlaying by remember { mutableStateOf(false) }
   var playProgressSeconds by remember { mutableIntStateOf(0) }
   var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+  var activeSegment by remember { mutableStateOf<TimestampedFeedback?>(null) }
+  var isContextPlayback by remember { mutableStateOf(false) }
 
   val audioDuration = session?.audioDurationSeconds ?: 0
+
+  // Target playback boundaries
+  val segmentStartSeconds = activeSegment?.let {
+    if (isContextPlayback) maxOf(0, it.startTimeSeconds - 3) else it.startTimeSeconds
+  }
+  val segmentEndSeconds = activeSegment?.let {
+    if (isContextPlayback) minOf(audioDuration, it.endTimeSeconds + 3) else it.endTimeSeconds
+  }
 
   // Real MediaPlayer initialization
   LaunchedEffect(audioPath) {
@@ -126,28 +136,58 @@ fun EntryDetailScreen(
     mediaPlayer?.setOnCompletionListener {
       isPlaying = false
       playProgressSeconds = 0
+      activeSegment = null
+      isContextPlayback = false
     }
   }
 
   // Handle media playback animation (real polling or simulated timer fallback)
-  LaunchedEffect(isPlaying, mediaPlayer, isRealAudio, audioDuration) {
+  LaunchedEffect(isPlaying, mediaPlayer, isRealAudio, audioDuration, activeSegment, isContextPlayback) {
     if (isPlaying) {
+      val start = segmentStartSeconds
+      val end = segmentEndSeconds
       if (isRealAudio) {
         val mp = mediaPlayer
         if (mp != null) {
           while (isPlaying && mp.isPlaying) {
-            playProgressSeconds = mp.currentPosition / 1000
+            val currentPos = mp.currentPosition / 1000
+            if (start != null && end != null) {
+              if (currentPos >= end) {
+                mp.pause()
+                isPlaying = false
+                mp.seekTo(start * 1000)
+                playProgressSeconds = start
+              } else if (currentPos < start) {
+                mp.seekTo(start * 1000)
+                playProgressSeconds = start
+              } else {
+                playProgressSeconds = currentPos
+              }
+            } else {
+              playProgressSeconds = currentPos
+            }
             delay(250)
           }
         }
       } else {
-        while (isPlaying && playProgressSeconds < audioDuration) {
-          delay(1000)
-          playProgressSeconds++
-        }
-        if (playProgressSeconds >= audioDuration) {
-          isPlaying = false
-          playProgressSeconds = 0
+        if (start != null && end != null) {
+          while (isPlaying && playProgressSeconds < end) {
+            delay(1000)
+            playProgressSeconds++
+          }
+          if (playProgressSeconds >= end) {
+            isPlaying = false
+            playProgressSeconds = start
+          }
+        } else {
+          while (isPlaying && playProgressSeconds < audioDuration) {
+            delay(1000)
+            playProgressSeconds++
+          }
+          if (playProgressSeconds >= audioDuration) {
+            isPlaying = false
+            playProgressSeconds = 0
+          }
         }
       }
     }
@@ -160,6 +200,36 @@ fun EntryDetailScreen(
         mediaPlayer?.release()
       } catch (e: Exception) {
         // ignore
+      }
+    }
+  }
+
+  val playSegment: (TimestampedFeedback, Boolean) -> Unit = { feedbackItem, contextMode ->
+    if (activeSegment?.id == feedbackItem.id && isContextPlayback == contextMode) {
+      if (isPlaying) {
+        if (isRealAudio) mediaPlayer?.pause()
+        isPlaying = false
+      } else {
+        if (isRealAudio) mediaPlayer?.start()
+        isPlaying = true
+      }
+    } else {
+      activeSegment = feedbackItem
+      isContextPlayback = contextMode
+      val start = if (contextMode) maxOf(0, feedbackItem.startTimeSeconds - 3) else feedbackItem.startTimeSeconds
+      playProgressSeconds = start
+      if (isRealAudio) {
+        try {
+          mediaPlayer?.seekTo(start * 1000)
+          if (!isPlaying) {
+            mediaPlayer?.start()
+          }
+          isPlaying = true
+        } catch (e: Exception) {
+          e.printStackTrace()
+        }
+      } else {
+        isPlaying = true
       }
     }
   }
@@ -195,12 +265,17 @@ fun EntryDetailScreen(
         Text("Einheit wurde nicht gefunden.", style = MaterialTheme.typography.bodyLarge)
       }
     } else {
-      Column(
+      Box(
         modifier = Modifier
           .fillMaxSize()
           .padding(innerPadding)
-          .verticalScroll(scrollState)
-          .padding(horizontal = 20.dp, vertical = 16.dp),
+      ) {
+        Column(
+          modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(bottom = 130.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
       ) {
         // Piece Title
@@ -420,9 +495,18 @@ fun EntryDetailScreen(
                     Slider(
                       value = playProgressSeconds.toFloat(),
                       onValueChange = {
-                        playProgressSeconds = it.toInt()
+                        val seekSec = it.toInt()
+                        playProgressSeconds = seekSec
                         if (isRealAudio) {
-                          mediaPlayer?.seekTo((it * 1000).toInt())
+                          mediaPlayer?.seekTo((seekSec * 1000).toInt())
+                        }
+                        val start = segmentStartSeconds
+                        val end = segmentEndSeconds
+                        if (start != null && end != null) {
+                          if (seekSec < start || seekSec > end) {
+                            activeSegment = null
+                            isContextPlayback = false
+                          }
                         }
                       },
                       valueRange = 0f..audioDuration.toFloat(),
@@ -657,22 +741,10 @@ fun EntryDetailScreen(
               manualOrAcceptedItems.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 FeedbackCard(
                   item = feedbackItem,
-                  onListenClick = {
-                    playProgressSeconds = feedbackItem.startTimeSeconds
-                    if (isRealAudio) {
-                      try {
-                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
-                        if (!isPlaying) {
-                          mediaPlayer?.start()
-                          isPlaying = true
-                        }
-                      } catch (e: Exception) {
-                        e.printStackTrace()
-                      }
-                    } else {
-                      isPlaying = true
-                    }
-                  },
+                  isActive = (activeSegment?.id == feedbackItem.id),
+                  isActiveContext = (activeSegment?.id == feedbackItem.id && isContextPlayback),
+                  onListenClick = { playSegment(feedbackItem, false) },
+                  onListenContextClick = { playSegment(feedbackItem, true) },
                   onBookmarkClick = {
                     RepositoryProvider.repository.togglePracticePoint(currentSession.id, feedbackItem.id)
                   },
@@ -719,22 +791,10 @@ fun EntryDetailScreen(
               automaticSuggestions.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 AutomaticSuggestionCard(
                   item = feedbackItem,
-                  onListenClick = {
-                    playProgressSeconds = feedbackItem.startTimeSeconds
-                    if (isRealAudio) {
-                      try {
-                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
-                        if (!isPlaying) {
-                          mediaPlayer?.start()
-                          isPlaying = true
-                        }
-                      } catch (e: Exception) {
-                        e.printStackTrace()
-                      }
-                    } else {
-                      isPlaying = true
-                    }
-                  },
+                  isActive = (activeSegment?.id == feedbackItem.id),
+                  isActiveContext = (activeSegment?.id == feedbackItem.id && isContextPlayback),
+                  onListenClick = { playSegment(feedbackItem, false) },
+                  onListenContextClick = { playSegment(feedbackItem, true) },
                   onAcceptClick = {
                     RepositoryProvider.repository.acceptFeedback(currentSession.id, feedbackItem.id)
                   },
@@ -782,22 +842,10 @@ fun EntryDetailScreen(
               markedPracticePoints.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                 FeedbackCard(
                   item = feedbackItem,
-                  onListenClick = {
-                    playProgressSeconds = feedbackItem.startTimeSeconds
-                    if (isRealAudio) {
-                      try {
-                        mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
-                        if (!isPlaying) {
-                          mediaPlayer?.start()
-                          isPlaying = true
-                        }
-                      } catch (e: Exception) {
-                        e.printStackTrace()
-                      }
-                    } else {
-                      isPlaying = true
-                    }
-                  },
+                  isActive = (activeSegment?.id == feedbackItem.id),
+                  isActiveContext = (activeSegment?.id == feedbackItem.id && isContextPlayback),
+                  onListenClick = { playSegment(feedbackItem, false) },
+                  onListenContextClick = { playSegment(feedbackItem, true) },
                   onBookmarkClick = {
                     RepositoryProvider.repository.togglePracticePoint(currentSession.id, feedbackItem.id)
                   },
@@ -856,22 +904,10 @@ fun EntryDetailScreen(
                 ignoredSuggestions.sortedBy { it.startTimeSeconds }.forEach { feedbackItem ->
                   IgnoredSuggestionCard(
                     item = feedbackItem,
-                    onListenClick = {
-                      playProgressSeconds = feedbackItem.startTimeSeconds
-                      if (isRealAudio) {
-                        try {
-                          mediaPlayer?.seekTo(feedbackItem.startTimeSeconds * 1000)
-                          if (!isPlaying) {
-                            mediaPlayer?.start()
-                            isPlaying = true
-                          }
-                        } catch (e: Exception) {
-                          e.printStackTrace()
-                        }
-                      } else {
-                        isPlaying = true
-                      }
-                    },
+                    isActive = (activeSegment?.id == feedbackItem.id),
+                    isActiveContext = (activeSegment?.id == feedbackItem.id && isContextPlayback),
+                    onListenClick = { playSegment(feedbackItem, false) },
+                    onListenContextClick = { playSegment(feedbackItem, true) },
                     onRestoreClick = {
                       RepositoryProvider.repository.restoreFeedback(currentSession.id, feedbackItem.id)
                     }
@@ -884,8 +920,59 @@ fun EntryDetailScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
       }
+
+      if (activeSegment != null) {
+        val segment = activeSegment!!
+        val start = if (isContextPlayback) maxOf(0, segment.startTimeSeconds - 3) else segment.startTimeSeconds
+        val end = if (isContextPlayback) minOf(audioDuration, segment.endTimeSeconds + 3) else segment.endTimeSeconds
+        StickyMiniPlayer(
+          segment = segment,
+          isPlaying = isPlaying,
+          isContextMode = isContextPlayback,
+          playProgressSeconds = playProgressSeconds,
+          audioDuration = audioDuration,
+          onPlayPause = {
+            if (isRealAudio) {
+              val mp = mediaPlayer
+              if (mp != null) {
+                if (isPlaying) {
+                  mp.pause()
+                  isPlaying = false
+                } else {
+                  if (playProgressSeconds >= end) {
+                    mp.seekTo(start * 1000)
+                    playProgressSeconds = start
+                  }
+                  mp.start()
+                  isPlaying = true
+                }
+              }
+            } else {
+              isPlaying = !isPlaying
+            }
+          },
+          onClose = {
+            if (isRealAudio) mediaPlayer?.pause()
+            isPlaying = false
+            activeSegment = null
+            isContextPlayback = false
+          },
+          onSeek = { seekSec ->
+            playProgressSeconds = seekSec
+            if (isRealAudio) mediaPlayer?.seekTo(seekSec * 1000)
+          },
+          onPlayFull = {
+            activeSegment = null
+            isContextPlayback = false
+          },
+          modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+        )
+      }
     }
   }
+}
 
   // Dialog to Add Manual Feedback Item
   if (showAddFeedbackDialog && session != null) {
@@ -1070,7 +1157,10 @@ fun EntryDetailScreen(
 @Composable
 fun FeedbackCard(
   item: TimestampedFeedback,
+  isActive: Boolean = false,
+  isActiveContext: Boolean = false,
   onListenClick: () -> Unit,
+  onListenContextClick: () -> Unit,
   onBookmarkClick: () -> Unit,
   onUndoClick: (() -> Unit)? = null,
   isMarkedSection: Boolean = false
@@ -1086,7 +1176,10 @@ fun FeedbackCard(
   Card(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(12.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    colors = CardDefaults.cardColors(
+      containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
+    ),
+    border = if (isActive) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else CardDefaults.outlinedCardBorder(),
     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
   ) {
     Column(
@@ -1205,45 +1298,67 @@ fun FeedbackCard(
 
       // Actions Column
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        // Stelle anhören
+        val isSegmentPlaying = isActive && !isActiveContext
+        Button(
+          onClick = onListenClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSegmentPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isSegmentPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
         ) {
-          Button(
-            onClick = onListenClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.weight(1f)
-          ) {
-            Icon(
-              imageVector = Icons.Default.PlayArrow,
-              contentDescription = null,
-              modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-          }
+          Icon(
+            imageVector = if (isSegmentPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Stelle anhören", style = MaterialTheme.typography.labelMedium)
+        }
 
-          Button(
-            onClick = onBookmarkClick,
-            colors = ButtonDefaults.buttonColors(
-              containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
-            ),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.weight(1.3f)
-          ) {
-            Icon(
-              imageVector = Icons.Default.Check,
-              contentDescription = null,
-              modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-              text = if (isMarkedSection) "Markierung entfernen" else (if (item.isPracticePoint) "Markiert!" else "Als Übungsstelle markieren"),
-              style = MaterialTheme.typography.labelMedium,
-              maxLines = 1
-            )
-          }
+        // Mit Kontext anhören
+        val isContextPlaying = isActive && isActiveContext
+        Button(
+          onClick = onListenContextClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isContextPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isContextPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Icon(
+            imageVector = if (isContextPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Mit Kontext anhören", style = MaterialTheme.typography.labelMedium)
+        }
+
+        // Bookmark button
+        Button(
+          onClick = onBookmarkClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary,
+            contentColor = Color.White
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Icon(
+            imageVector = Icons.Default.Check,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = if (isMarkedSection) "Markierung entfernen" else (if (item.isPracticePoint) "Markiert!" else "Als Übungsstelle markieren"),
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1
+          )
         }
 
         if (onUndoClick != null) {
@@ -1275,7 +1390,10 @@ fun FeedbackCard(
 @Composable
 fun AutomaticSuggestionCard(
   item: TimestampedFeedback,
+  isActive: Boolean = false,
+  isActiveContext: Boolean = false,
   onListenClick: () -> Unit,
+  onListenContextClick: () -> Unit,
   onAcceptClick: () -> Unit,
   onIgnoreClick: () -> Unit,
   onBookmarkClick: () -> Unit
@@ -1292,9 +1410,9 @@ fun AutomaticSuggestionCard(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(12.dp),
     colors = CardDefaults.cardColors(
-      containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+      containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
     ),
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+    border = if (isActive) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
   ) {
     Column(
       modifier = Modifier.padding(16.dp),
@@ -1408,35 +1526,92 @@ fun AutomaticSuggestionCard(
         }
       }
 
-      // Actions: Row 1 (Anhören & Übungsstelle)
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-      ) {
-        // Anhören
+      // Actions Column
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Row 1 (Anhören & Kontext)
+        val isSegmentPlaying = isActive && !isActiveContext
         Button(
           onClick = onListenClick,
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSegmentPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isSegmentPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
           shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
+          modifier = Modifier.fillMaxWidth()
         ) {
           Icon(
-            imageVector = Icons.Default.PlayArrow,
+            imageVector = if (isSegmentPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
             contentDescription = null,
             modifier = Modifier.size(16.dp)
           )
           Spacer(modifier = Modifier.width(6.dp))
-          Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          Text("Stelle anhören", style = MaterialTheme.typography.labelMedium)
         }
 
-        // Als Übungsstelle markieren
+        val isContextPlaying = isActive && isActiveContext
+        Button(
+          onClick = onListenContextClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isContextPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isContextPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Icon(
+            imageVector = if (isContextPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Mit Kontext anhören", style = MaterialTheme.typography.labelMedium)
+        }
+
+        // Row 2 (Übernehmen & Ignorieren)
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Button(
+            onClick = onAcceptClick,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF27AE60)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Check,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Übernehmen", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          }
+
+          Button(
+            onClick = onIgnoreClick,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.weight(1f)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = null,
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Ignorieren", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          }
+        }
+
+        // Row 3 (Als Übungsstelle markieren)
         Button(
           onClick = onBookmarkClick,
           colors = ButtonDefaults.buttonColors(
-            containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary
+            containerColor = if (item.isPracticePoint) Color(0xFF27AE60) else MaterialTheme.colorScheme.secondary,
+            contentColor = Color.White
           ),
           shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
+          modifier = Modifier.fillMaxWidth()
         ) {
           Icon(
             imageVector = Icons.Default.Check,
@@ -1445,48 +1620,10 @@ fun AutomaticSuggestionCard(
           )
           Spacer(modifier = Modifier.width(6.dp))
           Text(
-            text = if (item.isPracticePoint) "Markiert!" else "Übungsstelle",
+            text = if (item.isPracticePoint) "Markiert!" else "Als Übungsstelle markieren",
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1
           )
-        }
-      }
-
-      // Actions: Row 2 (Übernehmen & Ignorieren)
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-      ) {
-        // Übernehmen
-        Button(
-          onClick = onAcceptClick,
-          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF27AE60)),
-          shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
-        ) {
-          Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp)
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Übernehmen", style = MaterialTheme.typography.labelMedium, maxLines = 1)
-        }
-
-        // Ignorieren
-        Button(
-          onClick = onIgnoreClick,
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-          shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
-        ) {
-          Icon(
-            imageVector = Icons.Default.Close,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp)
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text("Ignorieren", style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
       }
     }
@@ -1497,7 +1634,10 @@ fun AutomaticSuggestionCard(
 @Composable
 fun IgnoredSuggestionCard(
   item: TimestampedFeedback,
+  isActive: Boolean = false,
+  isActiveContext: Boolean = false,
   onListenClick: () -> Unit,
+  onListenContextClick: () -> Unit,
   onRestoreClick: () -> Unit
 ) {
   val typeColor = when (item.feedbackType) {
@@ -1512,9 +1652,9 @@ fun IgnoredSuggestionCard(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(12.dp),
     colors = CardDefaults.cardColors(
-      containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+      containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     ),
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+    border = if (isActive) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
   ) {
     Column(
       modifier = Modifier.padding(16.dp),
@@ -1614,25 +1754,44 @@ fun IgnoredSuggestionCard(
         }
       }
 
-      // Actions: Row (Anhören & Wiederherstellen)
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-      ) {
-        // Anhören
+      // Actions: Row (Anhören & Kontext & Wiederherstellen)
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val isSegmentPlaying = isActive && !isActiveContext
         Button(
           onClick = onListenClick,
-          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isSegmentPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+            contentColor = if (isSegmentPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
           shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
+          modifier = Modifier.fillMaxWidth()
         ) {
           Icon(
-            imageVector = Icons.Default.PlayArrow,
+            imageVector = if (isSegmentPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
             contentDescription = null,
             modifier = Modifier.size(16.dp)
           )
           Spacer(modifier = Modifier.width(6.dp))
-          Text("Anhören", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+          Text("Stelle anhören", style = MaterialTheme.typography.labelMedium)
+        }
+
+        val isContextPlaying = isActive && isActiveContext
+        Button(
+          onClick = onListenContextClick,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = if (isContextPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+            contentColor = if (isContextPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+          ),
+          shape = RoundedCornerShape(8.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Icon(
+            imageVector = if (isContextPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Mit Kontext anhören", style = MaterialTheme.typography.labelMedium)
         }
 
         // Wiederherstellen
@@ -1640,7 +1799,7 @@ fun IgnoredSuggestionCard(
           onClick = onRestoreClick,
           colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
           shape = RoundedCornerShape(8.dp),
-          modifier = Modifier.weight(1f)
+          modifier = Modifier.fillMaxWidth()
         ) {
           Icon(
             imageVector = Icons.Default.Check,
@@ -1690,6 +1849,153 @@ fun InfoItem(
         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
         color = MaterialTheme.colorScheme.onSurface
       )
+    }
+  }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StickyMiniPlayer(
+  segment: TimestampedFeedback,
+  isPlaying: Boolean,
+  isContextMode: Boolean,
+  playProgressSeconds: Int,
+  audioDuration: Int,
+  onPlayPause: () -> Unit,
+  onClose: () -> Unit,
+  onSeek: (Int) -> Unit,
+  onPlayFull: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val start = if (isContextMode) maxOf(0, segment.startTimeSeconds - 3) else segment.startTimeSeconds
+  val end = if (isContextMode) minOf(audioDuration, segment.endTimeSeconds + 3) else segment.endTimeSeconds
+  val progress = playProgressSeconds.coerceIn(start, end)
+
+  val typeColor = when (segment.feedbackType) {
+    "Stärke" -> Color(0xFF27AE60)
+    "Hinweis" -> MaterialTheme.colorScheme.secondary
+    "Problem" -> Color(0xFFC0392B)
+    "Übungsziel" -> MaterialTheme.colorScheme.primary
+    else -> MaterialTheme.colorScheme.onSurface
+  }
+
+  Card(
+    modifier = modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(12.dp)),
+    shape = RoundedCornerShape(12.dp),
+    colors = CardDefaults.cardColors(
+      containerColor = MaterialTheme.colorScheme.surface
+    ),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+  ) {
+    Column(
+      modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Column(
+          modifier = Modifier.weight(1f)
+        ) {
+          Text(
+            text = if (isContextMode) "Kontext wird abgespielt" else "Stelle wird abgespielt",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+          )
+          Text(
+            text = "${segment.category} • ${segment.feedbackType}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+          )
+        }
+
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+          IconButton(
+            onClick = onPlayPause,
+            colors = IconButtonDefaults.iconButtonColors(
+              containerColor = MaterialTheme.colorScheme.primary,
+              contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            modifier = Modifier.size(32.dp)
+          ) {
+            Icon(
+              imageVector = if (isPlaying) Icons.Default.Close else Icons.Default.PlayArrow,
+              contentDescription = if (isPlaying) "Pause" else "Play",
+              modifier = Modifier.size(18.dp)
+            )
+          }
+
+          IconButton(
+            onClick = onClose,
+            colors = IconButtonDefaults.iconButtonColors(
+              containerColor = Color.Transparent,
+              contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ),
+            modifier = Modifier.size(32.dp)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Schließen",
+              modifier = Modifier.size(18.dp)
+            )
+          }
+        }
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        Text(
+          text = formatTime(progress),
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Slider(
+          value = progress.toFloat(),
+          onValueChange = { onSeek(it.toInt()) },
+          valueRange = start.toFloat()..end.toFloat(),
+          modifier = Modifier.weight(1f),
+          thumb = {
+            Box(
+              modifier = Modifier
+                .size(8.dp)
+                .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(percent = 50))
+            )
+          }
+        )
+
+        Text(
+          text = formatTime(end),
+          style = MaterialTheme.typography.labelSmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+      }
+
+      Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+      ) {
+        TextButton(
+          onClick = onPlayFull,
+          modifier = Modifier.height(24.dp)
+        ) {
+          Text(
+            text = "Gesamte Aufnahme",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
+          )
+        }
+      }
     }
   }
 }
